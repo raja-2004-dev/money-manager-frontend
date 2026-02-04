@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api from "../api";
 import AddModal from "./AddModal";
 import EditModal from "./EditModal";
@@ -12,7 +12,6 @@ import {
   ResponsiveContainer,
   PieChart,
   Pie,
-  Legend,
   Cell
 } from "recharts";
 
@@ -45,7 +44,7 @@ export default function Dashboard() {
 
   /* ================= LOAD DATA ================= */
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const t = await api.get("/transactions");
       const s = await api.get(`/transactions/summary/${view}`);
@@ -65,11 +64,11 @@ export default function Dashboard() {
     } catch (err) {
       console.log(err);
     }
-  };
+  }, [view]);
 
   useEffect(() => {
     loadData();
-  }, [view]);
+  }, [view, loadData]);
 
   /* ================= FILTER ================= */
 
@@ -375,7 +374,7 @@ export default function Dashboard() {
             </select>
           </div>
 
-          {summary.map((s, idx) => (
+          {summary.map((s) => (
             <div
               key={s.type}
               className={`card-hover p-6 rounded-2xl text-white relative overflow-hidden ${
@@ -524,7 +523,7 @@ export default function Dashboard() {
                 <p className="text-sm">Add your first transaction to get started</p>
               </div>
             ) : (
-              transactions.map((t, idx) => {
+              transactions.map((t) => {
                 const created = new Date(t.created_at);
                 const hoursPassed = (new Date() - created) / (1000 * 60 * 60);
 
