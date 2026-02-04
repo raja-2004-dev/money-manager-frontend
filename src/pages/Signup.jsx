@@ -1,5 +1,5 @@
 import { useState } from "react";
-import axios from "axios";
+import api from "../api";
 import { useNavigate } from "react-router-dom";
 
 export default function Signup() {
@@ -24,7 +24,7 @@ export default function Signup() {
     }
 
     try {
-      await axios.post("http://localhost:5000/api/auth/signup", {
+      await api.post("/auth/signup", {
         name,
         email,
         password
@@ -32,8 +32,10 @@ export default function Signup() {
 
       alert("Account created successfully!");
       nav("/");
-    } catch {
-      alert("Email already exists");
+    } catch (err) {
+      console.error(err);
+      const errorMessage = err.response?.data?.error || "Email already exists";
+      alert(errorMessage);
     }
   };
 
