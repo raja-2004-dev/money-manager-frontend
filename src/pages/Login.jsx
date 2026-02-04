@@ -1,24 +1,56 @@
 import { useState } from "react";
-import api from "../api";
 import { useNavigate } from "react-router-dom";
+import api from "../api";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const nav = useNavigate();
 
   const login = async () => {
+    // Clear previous error
+    setError("");
+
+    // Validation
+    if (!email || !password) {
+      setError("Please enter both email and password");
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      const res = await api.post("/auth/login", {
+      console.log('Attempting login with:', { email });
+      
+      const res = await api.post("/api/auth/login", {
         email,
         password
       });
 
+      console.log('Login successful:', res.data);
+
+      // Save token
       localStorage.setItem("token", res.data.token);
+      
+      // Redirect to dashboard
       nav("/dashboard");
     } catch (err) {
-      console.error(err);
-      alert("Invalid login");
+      console.error('Login error:', err);
+      
+      if (err.response) {
+        // Server responded with error
+        setError(err.response.data.error || "Login failed");
+      } else if (err.request) {
+        // Request made but no response
+        setError("Cannot connect to server. Please check your internet connection.");
+      } else {
+        // Other errors
+        setError("An error occurred. Please try again.");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -92,6 +124,12 @@ export default function Login() {
             <p className="text-gray-500">Enter your credentials to continue</p>
           </div>
 
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+              {error}
+            </div>
+          )}
+
           <div className="space-y-5">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -104,6 +142,7 @@ export default function Login() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 onKeyPress={e => e.key === 'Enter' && login()}
+                disabled={loading}
               />
             </div>
 
@@ -118,15 +157,17 @@ export default function Login() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 onKeyPress={e => e.key === 'Enter' && login()}
+                disabled={loading}
               />
             </div>
           </div>
 
           <button
             onClick={login}
-            className="mt-8 bg-gradient-to-r from-indigo-600 to-purple-600 text-white w-full py-4 rounded-xl font-semibold hover:shadow-lg hover:scale-[1.02] transition-all duration-200"
+            disabled={loading}
+            className="mt-8 bg-gradient-to-r from-indigo-600 to-purple-600 text-white w-full py-4 rounded-xl font-semibold hover:shadow-lg hover:scale-[1.02] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Sign In
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
 
           <div className="mt-6 text-center">

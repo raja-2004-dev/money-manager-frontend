@@ -1,41 +1,69 @@
 import { useState } from "react";
-import api from "../api";
 import { useNavigate } from "react-router-dom";
+import api from "../api";
 
 export default function Signup() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const nav = useNavigate();
 
   const signup = async () => {
+    // Clear previous error
+    setError("");
+
     // Validation
     if (!name || !email || !password || !confirmPassword) {
-      return alert("Please fill in all fields");
+      setError("Please fill in all fields");
+      return;
     }
 
     if (password !== confirmPassword) {
-      return alert("Passwords do not match!");
+      setError("Passwords do not match");
+      return;
     }
 
     if (password.length < 6) {
-      return alert("Password must be at least 6 characters long");
+      setError("Password must be at least 6 characters long");
+      return;
     }
 
+    setLoading(true);
+
     try {
-      await api.post("/auth/signup", {
+      console.log('Attempting signup with:', { name, email });
+      
+      await api.post("/api/auth/signup", {
         name,
         email,
         password
       });
 
-      alert("Account created successfully!");
+      console.log('Signup successful');
+
+      // Show success message
+      alert("Account created successfully! Please login.");
+      
+      // Redirect to login
       nav("/");
     } catch (err) {
-      console.error(err);
-      const errorMessage = err.response?.data?.error || "Email already exists";
-      alert(errorMessage);
+      console.error('Signup error:', err);
+      
+      if (err.response) {
+        // Server responded with error
+        setError(err.response.data.error || "Signup failed");
+      } else if (err.request) {
+        // Request made but no response
+        setError("Cannot connect to server. Please check your internet connection.");
+      } else {
+        // Other errors
+        setError("An error occurred. Please try again.");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -109,6 +137,12 @@ export default function Signup() {
             <p className="text-gray-500">Get started with your financial journey</p>
           </div>
 
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+              {error}
+            </div>
+          )}
+
           <div className="space-y-5">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -119,6 +153,7 @@ export default function Signup() {
                 className="border-2 border-gray-200 p-4 w-full rounded-xl focus:border-purple-500 focus:outline-none transition-colors"
                 value={name}
                 onChange={e => setName(e.target.value)}
+                disabled={loading}
               />
             </div>
 
@@ -132,6 +167,7 @@ export default function Signup() {
                 className="border-2 border-gray-200 p-4 w-full rounded-xl focus:border-purple-500 focus:outline-none transition-colors"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
+                disabled={loading}
               />
             </div>
 
@@ -145,6 +181,7 @@ export default function Signup() {
                 className="border-2 border-gray-200 p-4 w-full rounded-xl focus:border-purple-500 focus:outline-none transition-colors"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
+                disabled={loading}
               />
               <p className="text-xs text-gray-500 mt-1.5">Must be at least 6 characters</p>
             </div>
@@ -164,6 +201,7 @@ export default function Signup() {
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
                 onKeyPress={e => e.key === 'Enter' && signup()}
+                disabled={loading}
               />
               {confirmPassword && password !== confirmPassword && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
@@ -180,9 +218,10 @@ export default function Signup() {
 
           <button
             onClick={signup}
-            className="mt-8 bg-gradient-to-r from-purple-600 to-indigo-600 text-white w-full py-4 rounded-xl font-semibold hover:shadow-lg hover:scale-[1.02] transition-all duration-200"
+            disabled={loading}
+            className="mt-8 bg-gradient-to-r from-purple-600 to-indigo-600 text-white w-full py-4 rounded-xl font-semibold hover:shadow-lg hover:scale-[1.02] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Create Account
+            {loading ? 'Creating Account...' : 'Create Account'}
           </button>
 
           <div className="mt-6 text-center">
