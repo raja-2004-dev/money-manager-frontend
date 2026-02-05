@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import api from "../api";
+import api from "./api";
 import AddModal from "./AddModal";
-import EditModal from "./EditModal";
+import EditModal from "./components/EditModal";
 
 import {
   BarChart,
