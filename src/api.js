@@ -1,30 +1,20 @@
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-console.log('🌐 API URL:', API_URL);
+console.log('API URL:', API_URL);
 
 const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  timeout: 10000 // 10 second timeout
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 15000
 });
 
-// Add token to requests
-api.interceptors.request.use(
-  config => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  error => Promise.reject(error)
-);
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
-// Handle responses
 api.interceptors.response.use(
   response => response,
   error => {
