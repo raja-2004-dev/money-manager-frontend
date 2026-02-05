@@ -17,7 +17,7 @@ export default function Dashboard() {
     const token = localStorage.getItem("token");
     if (!token) nav("/");
     else loadData();
-  }, []);
+  }, [loadData, nav]);
 
   const loadData = async () => {
     try {
