@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api";
-
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell
+  ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, Legend
 } from "recharts";
 
 export default function Dashboard() {
@@ -19,6 +18,7 @@ export default function Dashboard() {
 
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
   const [editing, setEditing] = useState(null);
 
   const [accountName, setAccountName] = useState("");
@@ -33,28 +33,44 @@ export default function Dashboard() {
     description: ""
   });
 
+  const [transferForm, setTransferForm] = useState({
+    fromAccount: "",
+    toAccount: "",
+    amount: ""
+  });
+
   const [filterCategory, setFilterCategory] = useState("");
   const [filterDivision, setFilterDivision] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
+  // Predefined categories
+  const CATEGORIES = {
+    expense: ["Fuel", "Food", "Movie", "Medical", "Loan", "Rent", "Shopping", "Transport", "Utilities", "Other"],
+    income: ["Salary", "Freelance", "Investment", "Gift", "Other"]
+  };
+
   // ================= LOAD DATA =================
 
   const loadData = useCallback(async () => {
-    const [accs, trans, summary, cats] = await Promise.all([
-      api.get("/api/transactions/accounts"),
-      api.get("/api/transactions"),
-      api.get(`/api/transactions/summary/${view}`),
-      api.get("/api/transactions/summary/category")
-    ]);
+    try {
+      const [accs, trans, summary, cats] = await Promise.all([
+        api.get("/api/transactions/accounts"),
+        api.get("/api/transactions"),
+        api.get(`/api/transactions/summary/${view}`),
+        api.get("/api/transactions/summary/category")
+      ]);
 
-    setAccounts(accs.data || []);
-    setTransactions(trans.data || []);
-    setSummaryData(summary.data || []);
-    setCategorySummary(cats.data || []);
+      setAccounts(accs.data || []);
+      setTransactions(trans.data || []);
+      setSummaryData(summary.data || []);
+      setCategorySummary(cats.data || []);
 
-    if ((accs.data || []).length === 0) setShowAccountSetup(true);
-    else setShowAccountSetup(false);
+      if ((accs.data || []).length === 0) setShowAccountSetup(true);
+      else setShowAccountSetup(false);
+    } catch (err) {
+      console.error("Load data error:", err);
+    }
   }, [view]);
 
   useEffect(() => {
@@ -65,41 +81,116 @@ export default function Dashboard() {
   // ================= CREATE ACCOUNT =================
 
   const createAccount = async () => {
-    if (!accountName || !initialBalance) return;
+    if (!accountName || !initialBalance) {
+      alert("Please fill all fields");
+      return;
+    }
 
-    await api.post("/api/transactions/accounts", {
-      name: accountName,
-      balance: Number(initialBalance)
-    });
+    try {
+      await api.post("/api/transactions/accounts", {
+        name: accountName,
+        balance: Number(initialBalance)
+      });
 
-    setAccountName("");
-    setInitialBalance("");
-    loadData();
+      setAccountName("");
+      setInitialBalance("");
+      loadData();
+    } catch (err) {
+      alert("Failed to create account");
+    }
+  };
+
+  // ================= TRANSFER MONEY =================
+
+  const transferMoney = async () => {
+    if (!transferForm.fromAccount || !transferForm.toAccount || !transferForm.amount) {
+      alert("Please fill all fields");
+      return;
+    }
+
+    if (transferForm.fromAccount === transferForm.toAccount) {
+      alert("Cannot transfer to same account");
+      return;
+    }
+
+    try {
+      // Add expense from source account
+      await api.post("/api/transactions", {
+        type: "expense",
+        amount: transferForm.amount,
+        category: "Transfer Out",
+        division: "Personal",
+        account: transferForm.fromAccount,
+        description: `Transfer to ${transferForm.toAccount}`
+      });
+
+      // Add income to destination account
+      await api.post("/api/transactions", {
+        type: "income",
+        amount: transferForm.amount,
+        category: "Transfer In",
+        division: "Personal",
+        account: transferForm.toAccount,
+        description: `Transfer from ${transferForm.fromAccount}`
+      });
+
+      setTransferForm({ fromAccount: "", toAccount: "", amount: "" });
+      setShowTransferModal(false);
+      loadData();
+      alert("Transfer successful!");
+    } catch (err) {
+      alert("Transfer failed");
+    }
+  };
+
+  // ================= CHECK IF EDITABLE (12 HOURS) =================
+
+  const isEditable = (transaction) => {
+    const createdAt = new Date(transaction.created_at);
+    const now = new Date();
+    const hoursDiff = (now - createdAt) / (1000 * 60 * 60);
+    return hoursDiff <= 12;
   };
 
   // ================= ADD + EDIT =================
 
   const saveTransaction = async () => {
-    if (!form.amount || !form.category || !form.account) return;
-
-    if (editing) {
-      await api.put(`/api/transactions/${editing.id}`, form);
-    } else {
-      await api.post("/api/transactions", form);
+    if (!form.amount || !form.category || !form.account) {
+      alert("Please fill required fields");
+      return;
     }
 
-    setForm({
-      type: "expense",
-      amount: "",
-      category: "",
-      division: "Personal",
-      account: "",
-      description: ""
-    });
+    try {
+      if (editing) {
+        if (!isEditable(editing)) {
+          alert("Cannot edit transactions older than 12 hours");
+          return;
+        }
+        await api.put(`/api/transactions/${editing.id}`, {
+          amount: form.amount,
+          category: form.category,
+          division: form.division,
+          description: form.description
+        });
+      } else {
+        await api.post("/api/transactions", form);
+      }
 
-    setEditing(null);
-    setShowAddModal(false);
-    loadData();
+      setForm({
+        type: "expense",
+        amount: "",
+        category: "",
+        division: "Personal",
+        account: "",
+        description: ""
+      });
+
+      setEditing(null);
+      setShowAddModal(false);
+      loadData();
+    } catch (err) {
+      alert("Failed to save transaction");
+    }
   };
 
   // ================= FILTER =================
@@ -131,115 +222,262 @@ export default function Dashboard() {
     .filter(t => t.type === "expense")
     .reduce((s, t) => s + Number(t.amount || 0), 0);
 
+  // ================= CHART DATA =================
+
   const pieData = summaryData.map(i => ({
-    name: i.type,
+    name: i.type === "income" ? "Income" : "Expense",
     value: Number(i.total)
   }));
+
+  // Daily breakdown for line chart
+  const dailyData = useMemo(() => {
+    const grouped = {};
+    filtered.forEach(t => {
+      const date = new Date(t.created_at).toLocaleDateString();
+      if (!grouped[date]) grouped[date] = { date, income: 0, expense: 0 };
+      if (t.type === "income") grouped[date].income += Number(t.amount);
+      else grouped[date].expense += Number(t.amount);
+    });
+    return Object.values(grouped).slice(-30); // Last 30 entries
+  }, [filtered]);
 
   const COLORS = ["#22c55e", "#ef4444"];
 
   // ======================================================
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        * { font-family: 'Inter', sans-serif; }
+        
+        @keyframes slideIn {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .animate-slide-in {
+          animation: slideIn 0.3s ease-out;
+        }
+        
+        .glass {
+          background: rgba(255, 255, 255, 0.9);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+      `}</style>
 
       {/* HEADER */}
-      <div className="bg-white shadow p-4 flex justify-between">
-        <h1 className="text-2xl font-bold">💰 Money Manager</h1>
-        <button
-          onClick={() => { localStorage.removeItem("token"); nav("/"); }}
-          className="bg-red-500 text-white px-4 py-2 rounded"
-        >
-          Logout
-        </button>
+      <div className="bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 py-6 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-3xl">
+              💰
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">Money Manager</h1>
+              <p className="text-indigo-100 text-sm">Track your finances effortlessly</p>
+            </div>
+          </div>
+          <button
+            onClick={() => { localStorage.removeItem("token"); nav("/"); }}
+            className="bg-white/20 hover:bg-white/30 text-white px-6 py-2 rounded-lg font-medium transition-all"
+          >
+            Logout
+          </button>
+        </div>
       </div>
 
       {!showAccountSetup && (
-        <div className="max-w-6xl mx-auto p-4 space-y-6">
+        <div className="max-w-7xl mx-auto p-4 space-y-6">
 
-          {/* SUMMARY */}
-          <div className="grid md:grid-cols-3 gap-4">
-            <Summary title="Balance" value={totalBalance} color="text-blue-600"/>
-            <Summary title="Income" value={totalIncome} color="text-green-600"/>
-            <Summary title="Expense" value={totalExpense} color="text-red-600"/>
+          {/* SUMMARY CARDS */}
+          <div className="grid md:grid-cols-3 gap-4 animate-slide-in">
+            <SummaryCard 
+              title="Total Balance" 
+              value={totalBalance} 
+              color="blue"
+              icon="💵"
+            />
+            <SummaryCard 
+              title="Total Income" 
+              value={totalIncome} 
+              color="green"
+              icon="📈"
+            />
+            <SummaryCard 
+              title="Total Expense" 
+              value={totalExpense} 
+              color="red"
+              icon="📉"
+            />
           </div>
 
-          {/* VIEW DROPDOWN */}
-          <select
-            value={view}
-            onChange={e => setView(e.target.value)}
-            className="border p-2 rounded"
-          >
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="yearly">Yearly</option>
-          </select>
+          {/* ACCOUNTS */}
+          <div className="glass rounded-2xl shadow-xl p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-800">💳 Your Accounts</h2>
+              <button
+                onClick={() => setShowTransferModal(true)}
+                className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:shadow-lg transition-all"
+              >
+                Transfer Money
+              </button>
+            </div>
+            <div className="grid md:grid-cols-3 gap-4">
+              {accounts.map(acc => (
+                <div key={acc.id} className="bg-gradient-to-br from-indigo-50 to-purple-50 p-4 rounded-xl border border-indigo-100">
+                  <p className="text-gray-600 text-sm font-medium">{acc.name}</p>
+                  <p className="text-2xl font-bold text-indigo-600">₹{Number(acc.balance).toFixed(2)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
 
-          {/* CHART */}
-          <div className="bg-white p-6 rounded shadow">
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie data={pieData} dataKey="value" outerRadius={90} label>
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+          {/* VIEW SELECTOR & CHARTS */}
+          <div className="grid md:grid-cols-2 gap-6">
+            
+            {/* PIE CHART */}
+            <div className="glass rounded-2xl shadow-xl p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-gray-800">Income vs Expense</h2>
+                <select
+                  value={view}
+                  onChange={e => setView(e.target.value)}
+                  className="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                >
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              <ResponsiveContainer width="100%" height={250}>
+                <PieChart>
+                  <Pie data={pieData} dataKey="value" outerRadius={90} label>
+                    {pieData.map((_, i) => (
+                      <Cell key={i} fill={COLORS[i]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* LINE CHART */}
+            <div className="glass rounded-2xl shadow-xl p-6">
+              <h2 className="text-lg font-bold text-gray-800 mb-4">Daily Trend</h2>
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={dailyData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tick={{fontSize: 12}} />
+                  <YAxis tick={{fontSize: 12}} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="income" stroke="#22c55e" strokeWidth={2} />
+                  <Line type="monotone" dataKey="expense" stroke="#ef4444" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           {/* FILTERS */}
-          <div className="bg-white p-4 rounded shadow flex flex-wrap gap-3">
-            <select onChange={e=>setFilterCategory(e.target.value)} className="border p-2 rounded">
-              <option value="">All Categories</option>
-              {categories.map(c=> <option key={c}>{c}</option>)}
-            </select>
+          <div className="glass rounded-2xl shadow-xl p-6">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">🔍 Filters</h2>
+            <div className="grid md:grid-cols-4 gap-4">
+              <select 
+                onChange={e => setFilterCategory(e.target.value)} 
+                className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">All Categories</option>
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
 
-            <select onChange={e=>setFilterDivision(e.target.value)} className="border p-2 rounded">
-              <option value="">All Divisions</option>
-              <option value="Personal">Personal</option>
-              <option value="Office">Office</option>
-            </select>
+              <select 
+                onChange={e => setFilterDivision(e.target.value)} 
+                className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">All Divisions</option>
+                <option value="Personal">Personal</option>
+                <option value="Office">Office</option>
+              </select>
 
-            <input type="date" onChange={e=>setFromDate(e.target.value)} />
-            <input type="date" onChange={e=>setToDate(e.target.value)} />
+              <input 
+                type="date" 
+                onChange={e => setFromDate(e.target.value)}
+                className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                placeholder="From Date"
+              />
+              
+              <input 
+                type="date" 
+                onChange={e => setToDate(e.target.value)}
+                className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                placeholder="To Date"
+              />
+            </div>
           </div>
 
           {/* TRANSACTION HISTORY */}
-          <div className="bg-white rounded shadow p-4 space-y-2">
-            {filtered.map(t => (
-              <div
-                key={t.id}
-                className="flex justify-between border p-3 rounded cursor-pointer"
-                onClick={() => {
-                  setEditing(t);
-                  setForm(t);
-                  setShowAddModal(true);
-                }}
-              >
-                <div>
-                  <p className="font-semibold">{t.category} ({t.division})</p>
-                  <p className="text-sm text-gray-500">
-                    {new Date(t.created_at).toLocaleString()}
-                  </p>
-                </div>
-                <span className={t.type==="income"?"text-green-600":"text-red-600"}>
-                  ₹{t.amount}
-                </span>
-              </div>
-            ))}
+          <div className="glass rounded-2xl shadow-xl p-6">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">📜 Transaction History</h2>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {filtered.length === 0 && (
+                <p className="text-center text-gray-500 py-8">No transactions found</p>
+              )}
+              {filtered.map(t => {
+                const canEdit = isEditable(t);
+                return (
+                  <div
+                    key={t.id}
+                    className={`flex justify-between items-center border border-gray-200 p-4 rounded-xl hover:shadow-md transition-all ${canEdit ? 'cursor-pointer hover:border-indigo-300' : 'opacity-60'}`}
+                    onClick={() => {
+                      if (canEdit) {
+                        setEditing(t);
+                        setForm({...t});
+                        setShowAddModal(true);
+                      } else {
+                        alert("Cannot edit transactions older than 12 hours");
+                      }
+                    }}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center ${t.type === "income" ? "bg-green-100" : "bg-red-100"}`}>
+                        <span className="text-xl">{t.type === "income" ? "📥" : "📤"}</span>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-800">{t.category}</p>
+                        <p className="text-sm text-gray-500">
+                          {t.division} • {t.account} • {new Date(t.created_at).toLocaleString()}
+                        </p>
+                        {t.description && <p className="text-xs text-gray-400">{t.description}</p>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-xl font-bold ${t.type === "income" ? "text-green-600" : "text-red-600"}`}>
+                        {t.type === "income" ? "+" : "-"}₹{Number(t.amount).toFixed(2)}
+                      </p>
+                      {!canEdit && <p className="text-xs text-gray-400">Cannot edit</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* CATEGORY SUMMARY */}
-          <div className="bg-white p-4 rounded shadow">
-            <h2 className="font-bold mb-2">Category Summary</h2>
-            {categorySummary.map(c => (
-              <div key={c.category} className="flex justify-between">
-                <span>{c.category}</span>
-                <span>₹{c.total}</span>
-              </div>
-            ))}
+          <div className="glass rounded-2xl shadow-xl p-6">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">📊 Category Summary (Expenses)</h2>
+            <div className="grid md:grid-cols-2 gap-3">
+              {categorySummary.length === 0 && (
+                <p className="text-gray-500 col-span-2 text-center py-4">No expense data yet</p>
+              )}
+              {categorySummary.map(c => (
+                <div key={c.category} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg">
+                  <span className="font-medium text-gray-700">{c.category}</span>
+                  <span className="font-bold text-red-600">₹{Number(c.total).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
         </div>
@@ -251,62 +489,210 @@ export default function Dashboard() {
           onClick={() => {
             setEditing(null);
             setForm({
-              type:"expense",
-              amount:"",
-              category:"",
-              division:"Personal",
-              account:"",
-              description:""
+              type: "expense",
+              amount: "",
+              category: "",
+              division: "Personal",
+              account: "",
+              description: ""
             });
             setShowAddModal(true);
           }}
-          className="fixed bottom-6 right-6 bg-blue-600 text-white w-14 h-14 rounded-full text-2xl"
+          className="fixed bottom-8 right-8 bg-gradient-to-r from-indigo-600 to-purple-600 text-white w-16 h-16 rounded-full text-3xl shadow-2xl hover:shadow-3xl hover:scale-110 transition-all"
         >
           +
         </button>
       )}
 
-      {/* ACCOUNT SETUP */}
+      {/* ACCOUNT SETUP MODAL */}
       {showAccountSetup && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded space-y-3">
-            <input placeholder="Account name" onChange={e=>setAccountName(e.target.value)} />
-            <input type="number" placeholder="Initial balance" onChange={e=>setInitialBalance(e.target.value)} />
-            <button onClick={createAccount} className="bg-blue-600 text-white px-4 py-2 rounded">
-              Create Account
-            </button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl animate-slide-in">
+            <h2 className="text-2xl font-bold mb-6 text-center bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              Create Your First Account
+            </h2>
+            <div className="space-y-4">
+              <input
+                placeholder="Account name (e.g., Cash, Bank)"
+                value={accountName}
+                onChange={e => setAccountName(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+              <input
+                type="number"
+                placeholder="Initial balance"
+                value={initialBalance}
+                onChange={e => setInitialBalance(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+              <button
+                onClick={createAccount}
+                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all"
+              >
+                Create Account
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ADD/EDIT MODAL */}
+      {/* ADD/EDIT TRANSACTION MODAL */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded space-y-3 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-slide-in">
+            <h2 className="text-2xl font-bold mb-6 text-center">
+              {editing ? "Edit Transaction" : "Add Transaction"}
+            </h2>
 
-            <select onChange={e=>setForm({...form,type:e.target.value})}>
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-            </select>
+            {/* TYPE TABS */}
+            <div className="flex gap-2 mb-6">
+              <button
+                onClick={() => setForm({...form, type: "expense"})}
+                className={`flex-1 py-3 rounded-lg font-semibold transition-all ${
+                  form.type === "expense" 
+                    ? "bg-red-500 text-white shadow-lg" 
+                    : "bg-gray-200 text-gray-600"
+                }`}
+              >
+                💸 Expense
+              </button>
+              <button
+                onClick={() => setForm({...form, type: "income"})}
+                className={`flex-1 py-3 rounded-lg font-semibold transition-all ${
+                  form.type === "income" 
+                    ? "bg-green-500 text-white shadow-lg" 
+                    : "bg-gray-200 text-gray-600"
+                }`}
+              >
+                💰 Income
+              </button>
+            </div>
 
-            <input placeholder="Amount" onChange={e=>setForm({...form,amount:e.target.value})}/>
-            <input placeholder="Category" onChange={e=>setForm({...form,category:e.target.value})}/>
+            <div className="space-y-4">
+              <input
+                type="number"
+                placeholder="Amount"
+                value={form.amount}
+                onChange={e => setForm({...form, amount: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              />
 
-            <select onChange={e=>setForm({...form,division:e.target.value})}>
-              <option value="Personal">Personal</option>
-              <option value="Office">Office</option>
-            </select>
+              <select
+                value={form.category}
+                onChange={e => setForm({...form, category: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select Category</option>
+                {CATEGORIES[form.type].map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
 
-            <select onChange={e=>setForm({...form,account:e.target.value})}>
-              <option value="">Select account</option>
-              {accounts.map(a=><option key={a.id}>{a.name}</option>)}
-            </select>
+              <select
+                value={form.division}
+                onChange={e => setForm({...form, division: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="Personal">Personal</option>
+                <option value="Office">Office</option>
+              </select>
 
-            <textarea placeholder="Description" onChange={e=>setForm({...form,description:e.target.value})}/>
+              <select
+                value={form.account}
+                onChange={e => setForm({...form, account: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                disabled={editing}
+              >
+                <option value="">Select Account</option>
+                {accounts.map(a => (
+                  <option key={a.id} value={a.name}>{a.name}</option>
+                ))}
+              </select>
 
-            <button onClick={saveTransaction} className="bg-blue-600 text-white px-4 py-2 rounded">
-              Save
-            </button>
+              <textarea
+                placeholder="Description (optional)"
+                value={form.description}
+                onChange={e => setForm({...form, description: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                rows="3"
+              />
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  setEditing(null);
+                }}
+                className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveTransaction}
+                className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all"
+              >
+                {editing ? "Update" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TRANSFER MODAL */}
+      {showTransferModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-slide-in">
+            <h2 className="text-2xl font-bold mb-6 text-center">Transfer Money</h2>
+            
+            <div className="space-y-4">
+              <select
+                value={transferForm.fromAccount}
+                onChange={e => setTransferForm({...transferForm, fromAccount: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">From Account</option>
+                {accounts.map(a => (
+                  <option key={a.id} value={a.name}>{a.name} (₹{Number(a.balance).toFixed(2)})</option>
+                ))}
+              </select>
+
+              <div className="text-center text-2xl">⬇️</div>
+
+              <select
+                value={transferForm.toAccount}
+                onChange={e => setTransferForm({...transferForm, toAccount: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">To Account</option>
+                {accounts.map(a => (
+                  <option key={a.id} value={a.name}>{a.name} (₹{Number(a.balance).toFixed(2)})</option>
+                ))}
+              </select>
+
+              <input
+                type="number"
+                placeholder="Amount to transfer"
+                value={transferForm.amount}
+                onChange={e => setTransferForm({...transferForm, amount: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowTransferModal(false)}
+                className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={transferMoney}
+                className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all"
+              >
+                Transfer
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -315,11 +701,20 @@ export default function Dashboard() {
   );
 }
 
-function Summary({ title, value, color }) {
+function SummaryCard({ title, value, color, icon }) {
+  const colors = {
+    blue: "from-blue-500 to-indigo-500",
+    green: "from-green-500 to-emerald-500",
+    red: "from-red-500 to-pink-500"
+  };
+
   return (
-    <div className="bg-white p-4 rounded shadow">
-      <p className="text-gray-600">{title}</p>
-      <p className={`text-2xl font-bold ${color}`}>₹{value.toFixed(2)}</p>
+    <div className={`glass rounded-2xl shadow-xl p-6 bg-gradient-to-br ${colors[color]} text-white`}>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-white/90 font-medium">{title}</p>
+        <span className="text-3xl">{icon}</span>
+      </div>
+      <p className="text-3xl font-bold">₹{Number(value).toFixed(2)}</p>
     </div>
   );
 }
