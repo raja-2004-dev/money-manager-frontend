@@ -36,7 +36,7 @@ export default function Dashboard() {
   const loadData = useCallback(async () => {
     const [accs, trans] = await Promise.all([
       api.get("/api/transactions/accounts"),
-      api.get("/api/transactions")
+      api.get("/api/transactions"),
     ]);
 
     const accountList = accs.data || [];
@@ -45,7 +45,6 @@ export default function Dashboard() {
     setAccounts(accountList);
     setTransactions(transactionList);
 
-    // 🔒 FORCE ACCOUNT CREATION FIRST
     if (accountList.length === 0) {
       setShowAccountSetup(true);
       return;
@@ -66,12 +65,11 @@ export default function Dashboard() {
 
     await api.post("/api/transactions/accounts", {
       name: accountName,
-      balance: Number(initialBalance)
+      balance: Number(initialBalance),
     });
 
     setAccountName("");
     setInitialBalance("");
-    setShowAccountSetup(false);
     loadData();
   };
 
@@ -80,18 +78,41 @@ export default function Dashboard() {
   const saveTransaction = async () => {
     if (!form.amount || !form.category || !form.account) return;
 
+    const amount = Number(form.amount);
+
+    const selectedAccount = accounts.find(
+      (a) => a.name === form.account
+    );
+
+    if (!selectedAccount) return alert("Account not found");
+
+    let newBalance = Number(selectedAccount.balance || 0);
+
+    if (form.type === "income") newBalance += amount;
+    else newBalance -= amount;
+
+    // Save transaction
     if (editing) {
-      await api.put(`/api/transactions/${editing.id || editing._id}`, form);
+      await api.put(
+        `/api/transactions/${editing.id || editing._id}`,
+        form
+      );
     } else {
       await api.post("/api/transactions", form);
     }
+
+    // Update account balance
+    await api.put(
+      `/api/transactions/accounts/${selectedAccount.id || selectedAccount._id}`,
+      { balance: newBalance }
+    );
 
     setForm({
       type: "expense",
       amount: "",
       category: "",
       account: "",
-      description: ""
+      description: "",
     });
 
     setEditing(null);
@@ -102,7 +123,7 @@ export default function Dashboard() {
   // ================= FILTER =================
 
   const filtered = useMemo(() => {
-    return transactions.filter(t => {
+    return transactions.filter((t) => {
       const byCat = filterCategory ? t.category === filterCategory : true;
       const byDate = filterDate
         ? new Date(t.created_at).toISOString().slice(0, 10) === filterDate
@@ -111,35 +132,38 @@ export default function Dashboard() {
     });
   }, [transactions, filterCategory, filterDate]);
 
-  const categories = [...new Set(transactions.map(t => t.category))];
+  const categories = [...new Set(transactions.map((t) => t.category))];
 
   // ================= SUMMARY =================
 
-  const totalBalance = accounts.reduce((s, a) => s + Number(a.balance || 0), 0);
+  const totalBalance = accounts.reduce(
+    (s, a) => s + Number(a.balance || 0),
+    0
+  );
 
   const totalIncome = transactions
-    .filter(t => t.type === "income")
+    .filter((t) => t.type === "income")
     .reduce((s, t) => s + Number(t.amount || 0), 0);
 
   const totalExpense = transactions
-    .filter(t => t.type === "expense")
+    .filter((t) => t.type === "expense")
     .reduce((s, t) => s + Number(t.amount || 0), 0);
 
   // ================= CHART DATA =================
 
-  const trendData = transactions.map(t => ({
+  const trendData = transactions.map((t) => ({
     date: new Date(t.created_at).toLocaleDateString(),
-    amount: Number(t.amount)
+    amount: Number(t.amount),
   }));
 
   const pieData = [
     { name: "Income", value: totalIncome },
-    { name: "Expense", value: totalExpense }
+    { name: "Expense", value: totalExpense },
   ];
 
   const COLORS = ["#22c55e", "#ef4444"];
 
-  // ==========================================================
+  // ======================================================
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -148,7 +172,10 @@ export default function Dashboard() {
       <div className="bg-white shadow p-4 flex justify-between">
         <h1 className="text-2xl font-bold">💰 Money Manager</h1>
         <button
-          onClick={() => { localStorage.removeItem("token"); nav("/"); }}
+          onClick={() => {
+            localStorage.removeItem("token");
+            nav("/");
+          }}
           className="bg-red-500 text-white px-4 py-2 rounded"
         >
           Logout
@@ -202,24 +229,26 @@ export default function Dashboard() {
             <select
               className="border p-2 rounded"
               value={filterCategory}
-              onChange={e => setFilterCategory(e.target.value)}
+              onChange={(e) => setFilterCategory(e.target.value)}
             >
               <option value="">All Categories</option>
-              {categories.map(c => <option key={c}>{c}</option>)}
+              {categories.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
             </select>
 
             <input
               type="date"
               className="border p-2 rounded"
               value={filterDate}
-              onChange={e => setFilterDate(e.target.value)}
+              onChange={(e) => setFilterDate(e.target.value)}
             />
           </div>
 
           {/* TRANSACTIONS */}
           <div className="bg-white rounded shadow p-4 space-y-2">
 
-            {filtered.map(t => (
+            {filtered.map((t) => (
               <div
                 key={t.id || t._id}
                 className="flex justify-between items-center border p-3 rounded hover:bg-gray-50 cursor-pointer"
@@ -230,7 +259,7 @@ export default function Dashboard() {
                     amount: t.amount,
                     category: t.category,
                     account: t.account,
-                    description: t.description || ""
+                    description: t.description || "",
                   });
                   setShowAddModal(true);
                 }}
@@ -242,7 +271,11 @@ export default function Dashboard() {
                   </p>
                 </div>
 
-                <span className={t.type === "income" ? "text-green-600" : "text-red-600"}>
+                <span
+                  className={
+                    t.type === "income" ? "text-green-600" : "text-red-600"
+                  }
+                >
                   ₹{t.amount}
                 </span>
               </div>
@@ -263,7 +296,7 @@ export default function Dashboard() {
               amount: "",
               category: "",
               account: "",
-              description: ""
+              description: "",
             });
             setShowAddModal(true);
           }}
@@ -273,19 +306,21 @@ export default function Dashboard() {
         </button>
       )}
 
-      {/* ================= ACCOUNT SETUP MODAL ================= */}
+      {/* ================= ACCOUNT SETUP ================= */}
 
       {showAccountSetup && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-4 shadow-xl">
 
-            <h2 className="text-xl font-bold text-center">Create Your First Account</h2>
+            <h2 className="text-xl font-bold text-center">
+              Create Your First Account
+            </h2>
 
             <input
-              placeholder="Account name (Cash, Bank...)"
+              placeholder="Account name"
               className="w-full border rounded-lg px-4 py-2"
               value={accountName}
-              onChange={e => setAccountName(e.target.value)}
+              onChange={(e) => setAccountName(e.target.value)}
             />
 
             <input
@@ -293,7 +328,7 @@ export default function Dashboard() {
               placeholder="Initial balance"
               className="w-full border rounded-lg px-4 py-2"
               value={initialBalance}
-              onChange={e => setInitialBalance(e.target.value)}
+              onChange={(e) => setInitialBalance(e.target.value)}
             />
 
             <button
@@ -321,14 +356,22 @@ export default function Dashboard() {
             <div className="flex gap-2">
               <button
                 onClick={() => setForm({ ...form, type: "expense" })}
-                className={`flex-1 py-2 rounded-lg ${form.type === "expense" ? "bg-red-500 text-white" : "bg-gray-200"}`}
+                className={`flex-1 py-2 rounded-lg ${
+                  form.type === "expense"
+                    ? "bg-red-500 text-white"
+                    : "bg-gray-200"
+                }`}
               >
                 Expense
               </button>
 
               <button
                 onClick={() => setForm({ ...form, type: "income" })}
-                className={`flex-1 py-2 rounded-lg ${form.type === "income" ? "bg-green-500 text-white" : "bg-gray-200"}`}
+                className={`flex-1 py-2 rounded-lg ${
+                  form.type === "income"
+                    ? "bg-green-500 text-white"
+                    : "bg-gray-200"
+                }`}
               >
                 Income
               </button>
@@ -339,23 +382,29 @@ export default function Dashboard() {
               placeholder="Amount"
               className="w-full border rounded-lg px-4 py-2"
               value={form.amount}
-              onChange={e => setForm({ ...form, amount: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, amount: e.target.value })
+              }
             />
 
             <input
               placeholder="Category"
               className="w-full border rounded-lg px-4 py-2"
               value={form.category}
-              onChange={e => setForm({ ...form, category: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, category: e.target.value })
+              }
             />
 
             <select
               className="w-full border rounded-lg px-4 py-2"
               value={form.account}
-              onChange={e => setForm({ ...form, account: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, account: e.target.value })
+              }
             >
               <option value="">Select account</option>
-              {accounts.map(a => (
+              {accounts.map((a) => (
                 <option key={a.id || a._id}>{a.name}</option>
               ))}
             </select>
@@ -364,7 +413,9 @@ export default function Dashboard() {
               placeholder="Description (optional)"
               className="w-full border rounded-lg px-4 py-2"
               value={form.description}
-              onChange={e => setForm({ ...form, description: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, description: e.target.value })
+              }
             />
 
             <div className="flex gap-3 pt-2">
