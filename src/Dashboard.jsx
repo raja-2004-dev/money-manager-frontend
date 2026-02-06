@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import api from "./api";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, Legend
+  ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 
 export default function Dashboard() {
@@ -12,6 +12,7 @@ export default function Dashboard() {
   const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [categorySummary, setCategorySummary] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const [view, setView] = useState("monthly");
   const [summaryData, setSummaryData] = useState([]);
@@ -53,6 +54,7 @@ export default function Dashboard() {
   // ================= LOAD DATA =================
 
   const loadData = useCallback(async () => {
+    setLoading(true);
     try {
       const [accs, trans, summary, cats] = await Promise.all([
         api.get("/api/transactions/accounts"),
@@ -70,6 +72,8 @@ export default function Dashboard() {
       else setShowAccountSetup(false);
     } catch (err) {
       console.error("Load data error:", err);
+    } finally {
+      setLoading(false);
     }
   }, [view]);
 
@@ -81,7 +85,7 @@ export default function Dashboard() {
   // ================= CREATE ACCOUNT =================
 
   const createAccount = async () => {
-    if (!accountName || !initialBalance) {
+    if (!accountName.trim() || !initialBalance) {
       alert("Please fill all fields");
       return;
     }
@@ -103,6 +107,8 @@ export default function Dashboard() {
   // ================= TRANSFER MONEY =================
 
   const transferMoney = async () => {
+    console.log("Transfer form:", transferForm);
+
     if (!transferForm.fromAccount || !transferForm.toAccount || !transferForm.amount) {
       alert("Please fill all fields");
       return;
@@ -113,11 +119,17 @@ export default function Dashboard() {
       return;
     }
 
+    const amount = Number(transferForm.amount);
+    if (amount <= 0) {
+      alert("Amount must be greater than 0");
+      return;
+    }
+
     try {
       // Add expense from source account
       await api.post("/api/transactions", {
         type: "expense",
-        amount: transferForm.amount,
+        amount: amount,
         category: "Transfer Out",
         division: "Personal",
         account: transferForm.fromAccount,
@@ -127,7 +139,7 @@ export default function Dashboard() {
       // Add income to destination account
       await api.post("/api/transactions", {
         type: "income",
-        amount: transferForm.amount,
+        amount: amount,
         category: "Transfer In",
         division: "Personal",
         account: transferForm.toAccount,
@@ -139,6 +151,7 @@ export default function Dashboard() {
       loadData();
       alert("Transfer successful!");
     } catch (err) {
+      console.error("Transfer error:", err);
       alert("Transfer failed");
     }
   };
@@ -198,13 +211,11 @@ export default function Dashboard() {
   const filtered = useMemo(() => {
     return transactions.filter(t => {
       const d = new Date(t.created_at);
-
-      return (
-        (!filterCategory || t.category === filterCategory) &&
-        (!filterDivision || t.division === filterDivision) &&
-        (!fromDate || d >= new Date(fromDate)) &&
-        (!toDate || d <= new Date(toDate))
-      );
+      const matchCategory = !filterCategory || t.category === filterCategory;
+      const matchDivision = !filterDivision || t.division === filterDivision;
+      const matchFrom = !fromDate || d >= new Date(fromDate);
+      const matchTo = !toDate || d <= new Date(toDate + "T23:59:59");
+      return matchCategory && matchDivision && matchFrom && matchTo;
     });
   }, [transactions, filterCategory, filterDivision, fromDate, toDate]);
 
@@ -238,12 +249,23 @@ export default function Dashboard() {
       if (t.type === "income") grouped[date].income += Number(t.amount);
       else grouped[date].expense += Number(t.amount);
     });
-    return Object.values(grouped).slice(-30); // Last 30 entries
+    return Object.values(grouped).slice(-30);
   }, [filtered]);
 
   const COLORS = ["#22c55e", "#ef4444"];
 
   // ======================================================
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 font-medium">Loading your data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -325,6 +347,9 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="grid md:grid-cols-3 gap-4">
+              {accounts.length === 0 && (
+                <p className="text-gray-500 col-span-3 text-center py-4">No accounts yet</p>
+              )}
               {accounts.map(acc => (
                 <div key={acc.id} className="bg-gradient-to-br from-indigo-50 to-purple-50 p-4 rounded-xl border border-indigo-100">
                   <p className="text-gray-600 text-sm font-medium">{acc.name}</p>
@@ -351,32 +376,44 @@ export default function Dashboard() {
                   <option value="yearly">Yearly</option>
                 </select>
               </div>
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie data={pieData} dataKey="value" outerRadius={90} label>
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+              {pieData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" outerRadius={90} label>
+                      {pieData.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-64 flex items-center justify-center text-gray-500">
+                  No data for this period
+                </div>
+              )}
             </div>
 
             {/* LINE CHART */}
             <div className="glass rounded-2xl shadow-xl p-6">
               <h2 className="text-lg font-bold text-gray-800 mb-4">Daily Trend</h2>
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={dailyData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{fontSize: 12}} />
-                  <YAxis tick={{fontSize: 12}} />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="income" stroke="#22c55e" strokeWidth={2} />
-                  <Line type="monotone" dataKey="expense" stroke="#ef4444" strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
+              {dailyData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={dailyData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{fontSize: 12}} />
+                    <YAxis tick={{fontSize: 12}} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="income" stroke="#22c55e" strokeWidth={2} />
+                    <Line type="monotone" dataKey="expense" stroke="#ef4444" strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-64 flex items-center justify-center text-gray-500">
+                  No transactions yet
+                </div>
+              )}
             </div>
           </div>
 
@@ -385,6 +422,7 @@ export default function Dashboard() {
             <h2 className="text-lg font-bold text-gray-800 mb-4">🔍 Filters</h2>
             <div className="grid md:grid-cols-4 gap-4">
               <select 
+                value={filterCategory}
                 onChange={e => setFilterCategory(e.target.value)} 
                 className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500"
               >
@@ -393,6 +431,7 @@ export default function Dashboard() {
               </select>
 
               <select 
+                value={filterDivision}
                 onChange={e => setFilterDivision(e.target.value)} 
                 className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500"
               >
@@ -402,14 +441,16 @@ export default function Dashboard() {
               </select>
 
               <input 
-                type="date" 
+                type="date"
+                value={fromDate}
                 onChange={e => setFromDate(e.target.value)}
                 className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500"
                 placeholder="From Date"
               />
               
               <input 
-                type="date" 
+                type="date"
+                value={toDate}
                 onChange={e => setToDate(e.target.value)}
                 className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500"
                 placeholder="To Date"
@@ -539,7 +580,7 @@ export default function Dashboard() {
       {/* ADD/EDIT TRANSACTION MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-slide-in">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-slide-in max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-6 text-center">
               {editing ? "Edit Transaction" : "Add Transaction"}
             </h2>
@@ -547,22 +588,24 @@ export default function Dashboard() {
             {/* TYPE TABS */}
             <div className="flex gap-2 mb-6">
               <button
-                onClick={() => setForm({...form, type: "expense"})}
+                onClick={() => setForm({...form, type: "expense", category: ""})}
+                disabled={editing}
                 className={`flex-1 py-3 rounded-lg font-semibold transition-all ${
                   form.type === "expense" 
                     ? "bg-red-500 text-white shadow-lg" 
                     : "bg-gray-200 text-gray-600"
-                }`}
+                } ${editing ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 💸 Expense
               </button>
               <button
-                onClick={() => setForm({...form, type: "income"})}
+                onClick={() => setForm({...form, type: "income", category: ""})}
+                disabled={editing}
                 className={`flex-1 py-3 rounded-lg font-semibold transition-all ${
                   form.type === "income" 
                     ? "bg-green-500 text-white shadow-lg" 
                     : "bg-gray-200 text-gray-600"
-                }`}
+                } ${editing ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 💰 Income
               </button>
@@ -643,45 +686,64 @@ export default function Dashboard() {
       {showTransferModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-slide-in">
-            <h2 className="text-2xl font-bold mb-6 text-center">Transfer Money</h2>
+            <h2 className="text-2xl font-bold mb-4 text-center">💸 Transfer Money</h2>
+            <p className="text-gray-600 text-sm text-center mb-6">
+              Move money between your accounts
+            </p>
             
             <div className="space-y-4">
-              <select
-                value={transferForm.fromAccount}
-                onChange={e => setTransferForm({...transferForm, fromAccount: e.target.value})}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">From Account</option>
-                {accounts.map(a => (
-                  <option key={a.id} value={a.name}>{a.name} (₹{Number(a.balance).toFixed(2)})</option>
-                ))}
-              </select>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">From Account</label>
+                <select
+                  value={transferForm.fromAccount}
+                  onChange={e => setTransferForm({...transferForm, fromAccount: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select source account</option>
+                  {accounts.map(a => (
+                    <option key={a.id} value={a.name}>
+                      {a.name} (Balance: ₹{Number(a.balance).toFixed(2)})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-              <div className="text-center text-2xl">⬇️</div>
+              <div className="text-center text-3xl py-2">⬇️</div>
 
-              <select
-                value={transferForm.toAccount}
-                onChange={e => setTransferForm({...transferForm, toAccount: e.target.value})}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">To Account</option>
-                {accounts.map(a => (
-                  <option key={a.id} value={a.name}>{a.name} (₹{Number(a.balance).toFixed(2)})</option>
-                ))}
-              </select>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">To Account</label>
+                <select
+                  value={transferForm.toAccount}
+                  onChange={e => setTransferForm({...transferForm, toAccount: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select destination account</option>
+                  {accounts.map(a => (
+                    <option key={a.id} value={a.name}>
+                      {a.name} (Balance: ₹{Number(a.balance).toFixed(2)})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-              <input
-                type="number"
-                placeholder="Amount to transfer"
-                value={transferForm.amount}
-                onChange={e => setTransferForm({...transferForm, amount: e.target.value})}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Amount</label>
+                <input
+                  type="number"
+                  placeholder="Enter amount to transfer"
+                  value={transferForm.amount}
+                  onChange={e => setTransferForm({...transferForm, amount: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowTransferModal(false)}
+                onClick={() => {
+                  setShowTransferModal(false);
+                  setTransferForm({ fromAccount: "", toAccount: "", amount: "" });
+                }}
                 className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300 transition-all"
               >
                 Cancel
@@ -714,7 +776,7 @@ function SummaryCard({ title, value, color, icon }) {
         <p className="text-white/90 font-medium">{title}</p>
         <span className="text-3xl">{icon}</span>
       </div>
-      <p className="text-3xl font-bold">₹{Number(value).toFixed(2)}</p>
+      <p className="text-3xl font-bold">₹{Number(value || 0).toFixed(2)}</p>
     </div>
   );
 }
