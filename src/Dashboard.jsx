@@ -27,11 +27,14 @@ export default function Dashboard() {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterDate, setFilterDate] = useState("");
 
+  // ---------- LOAD DATA
+
   const loadData = useCallback(async () => {
     const [accs, trans] = await Promise.all([
       api.get("/api/transactions/accounts"),
       api.get("/api/transactions")
     ]);
+
     setAccounts(accs.data || []);
     setTransactions(trans.data || []);
   }, []);
@@ -41,7 +44,7 @@ export default function Dashboard() {
     else loadData();
   }, [loadData, nav]);
 
-  // ---------- SAVE (ADD + EDIT)
+  // ---------- ADD + EDIT SAVE
 
   const saveTransaction = async () => {
     if (!form.amount || !form.category || !form.account) return;
@@ -52,17 +55,16 @@ export default function Dashboard() {
       await api.post("/api/transactions", form);
     }
 
-    setForm({ type: "expense", amount: "", category: "", account: "", description: "" });
+    setForm({
+      type: "expense",
+      amount: "",
+      category: "",
+      account: "",
+      description: ""
+    });
+
     setEditing(null);
     setShowAddModal(false);
-    loadData();
-  };
-
-  // ---------- DELETE
-
-  const deleteTransaction = async (id) => {
-    if (!window.confirm("Delete this transaction?")) return;
-    await api.delete(`/api/transactions/${id}`);
     loadData();
   };
 
@@ -70,11 +72,11 @@ export default function Dashboard() {
 
   const filtered = useMemo(() => {
     return transactions.filter(t => {
-      const c = filterCategory ? t.category === filterCategory : true;
-      const d = filterDate
+      const byCat = filterCategory ? t.category === filterCategory : true;
+      const byDate = filterDate
         ? new Date(t.created_at).toISOString().slice(0, 10) === filterDate
         : true;
-      return c && d;
+      return byCat && byDate;
     });
   }, [transactions, filterCategory, filterDate]);
 
@@ -83,9 +85,13 @@ export default function Dashboard() {
   // ---------- SUMMARY
 
   const totalBalance = accounts.reduce((s, a) => s + Number(a.balance || 0), 0);
-  const totalIncome = transactions.filter(t => t.type === "income")
+
+  const totalIncome = transactions
+    .filter(t => t.type === "income")
     .reduce((s, t) => s + Number(t.amount || 0), 0);
-  const totalExpense = transactions.filter(t => t.type === "expense")
+
+  const totalExpense = transactions
+    .filter(t => t.type === "expense")
     .reduce((s, t) => s + Number(t.amount || 0), 0);
 
   // ---------- CHART DATA
@@ -182,45 +188,29 @@ export default function Dashboard() {
           {filtered.map(t => (
             <div
               key={t.id || t._id}
-              className="flex justify-between items-center border p-3 rounded hover:bg-gray-50"
+              className="flex justify-between items-center border p-3 rounded hover:bg-gray-50 cursor-pointer"
+              onClick={() => {
+                setEditing(t);
+                setForm({
+                  type: t.type,
+                  amount: t.amount,
+                  category: t.category,
+                  account: t.account,
+                  description: t.description || ""
+                });
+                setShowAddModal(true);
+              }}
             >
-
-              <div
-                className="cursor-pointer"
-                onClick={() => {
-                  setEditing(t);
-                  setForm({
-                    type: t.type,
-                    amount: t.amount,
-                    category: t.category,
-                    account: t.account,
-                    description: t.description || ""
-                  });
-                  setShowAddModal(true);
-                }}
-              >
+              <div>
                 <p className="font-semibold">{t.category}</p>
                 <p className="text-sm text-gray-500">
                   {new Date(t.created_at).toLocaleDateString()}
                 </p>
               </div>
 
-              <div className="flex items-center gap-4">
-                <span className={t.type === "income" ? "text-green-600" : "text-red-600"}>
-                  ₹{t.amount}
-                </span>
-
-                {/* FIXED DELETE */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteTransaction(t.id || t._id);
-                  }}
-                  className="text-red-500 hover:text-red-700 text-xl"
-                >
-                  🗑
-                </button>
-              </div>
+              <span className={t.type === "income" ? "text-green-600" : "text-red-600"}>
+                ₹{t.amount}
+              </span>
             </div>
           ))}
 
@@ -231,7 +221,13 @@ export default function Dashboard() {
       <button
         onClick={() => {
           setEditing(null);
-          setForm({ type: "expense", amount: "", category: "", account: "", description: "" });
+          setForm({
+            type: "expense",
+            amount: "",
+            category: "",
+            account: "",
+            description: ""
+          });
           setShowAddModal(true);
         }}
         className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 text-white rounded-full text-2xl shadow-lg"
@@ -239,7 +235,7 @@ export default function Dashboard() {
         +
       </button>
 
-      {/* MODAL */}
+      {/* ADD / EDIT MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
 
@@ -252,13 +248,18 @@ export default function Dashboard() {
             <div className="flex gap-2">
               <button
                 onClick={() => setForm({ ...form, type: "expense" })}
-                className={`flex-1 py-2 rounded-lg ${form.type === "expense" ? "bg-red-500 text-white" : "bg-gray-200"}`}
+                className={`flex-1 py-2 rounded-lg ${
+                  form.type === "expense" ? "bg-red-500 text-white" : "bg-gray-200"
+                }`}
               >
                 Expense
               </button>
+
               <button
                 onClick={() => setForm({ ...form, type: "income" })}
-                className={`flex-1 py-2 rounded-lg ${form.type === "income" ? "bg-green-500 text-white" : "bg-gray-200"}`}
+                className={`flex-1 py-2 rounded-lg ${
+                  form.type === "income" ? "bg-green-500 text-white" : "bg-gray-200"
+                }`}
               >
                 Income
               </button>
@@ -291,7 +292,7 @@ export default function Dashboard() {
             </select>
 
             <textarea
-              placeholder="Description"
+              placeholder="Description (optional)"
               className="w-full border rounded-lg px-4 py-2"
               value={form.description}
               onChange={e => setForm({ ...form, description: e.target.value })}
