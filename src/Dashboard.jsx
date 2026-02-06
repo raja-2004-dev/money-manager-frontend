@@ -3,16 +3,8 @@ import { useNavigate } from "react-router-dom";
 import api from "./api";
 
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell
 } from "recharts";
 
 export default function Dashboard() {
@@ -20,6 +12,7 @@ export default function Dashboard() {
 
   const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
+
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -47,9 +40,7 @@ export default function Dashboard() {
       setAccounts(accs.data || []);
       setTransactions(trans.data || []);
 
-      if ((accs.data || []).length === 0) {
-        setShowAccountSetup(true);
-      }
+      if ((accs.data || []).length === 0) setShowAccountSetup(true);
     } catch (err) {
       if (err.response?.status === 401) nav("/");
     }
@@ -61,53 +52,16 @@ export default function Dashboard() {
     else loadData();
   }, [loadData, nav]);
 
-  const createAccount = async () => {
-    if (!accountName || !initialBalance) return;
-
-    await api.post("/api/transactions/accounts", {
-      name: accountName,
-      balance: Number(initialBalance)
-    });
-
-    setAccountName("");
-    setInitialBalance("");
-    setShowAccountSetup(false);
-    loadData();
-  };
-
-  const addTransaction = async () => {
-    if (!newTransaction.amount || !newTransaction.category || !newTransaction.account) return;
-
-    await api.post("/api/transactions", newTransaction);
-
-    setNewTransaction({
-      type: "expense",
-      amount: "",
-      category: "",
-      description: "",
-      account: ""
-    });
-
-    setShowAddModal(false);
-    loadData();
-  };
-
-  const logout = () => {
-    localStorage.removeItem("token");
-    nav("/");
-  };
-
-  // ---------------- FILTERING ----------------
+  // ---------------- FILTER ----------------
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
-      const matchCategory = filterCategory ? t.category === filterCategory : true;
-
-      const matchDate = filterDate
+      const byCategory = filterCategory ? t.category === filterCategory : true;
+      const byDate = filterDate
         ? new Date(t.created_at).toISOString().slice(0, 10) === filterDate
         : true;
 
-      return matchCategory && matchDate;
+      return byCategory && byDate;
     });
   }, [transactions, filterCategory, filterDate]);
 
@@ -132,14 +86,22 @@ export default function Dashboard() {
     amount: Number(t.amount || 0)
   }));
 
-  const pieData = [
+  const incomeExpenseData = [
     { name: "Income", value: totalIncome },
     { name: "Expense", value: totalExpense }
   ];
 
-  const COLORS = ["#22c55e", "#ef4444"];
+  // ✅ NEW: Category wise total calculation
+  const categoryPieData = categories.map(cat => ({
+    name: cat,
+    value: transactions
+      .filter(t => t.category === cat)
+      .reduce((s, t) => s + Number(t.amount || 0), 0)
+  }));
 
-  // =====================================================
+  const COLORS = ["#3b82f6", "#22c55e", "#ef4444", "#f97316", "#a855f7", "#14b8a6"];
+
+  // ==================================================
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -147,7 +109,8 @@ export default function Dashboard() {
       {/* HEADER */}
       <div className="bg-white shadow p-4 flex justify-between">
         <h1 className="text-2xl font-bold">💰 Money Manager</h1>
-        <button onClick={logout} className="bg-red-500 text-white px-4 py-2 rounded">
+        <button onClick={() => { localStorage.removeItem("token"); nav("/"); }}
+          className="bg-red-500 text-white px-4 py-2 rounded">
           Logout
         </button>
       </div>
@@ -161,11 +124,10 @@ export default function Dashboard() {
           <Card title="Expense" value={totalExpense} color="text-red-600" />
         </div>
 
-        {/* CHARTS */}
+        {/* CHARTS ROW 1 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
 
-          <div className="bg-white p-6 rounded-xl shadow">
-            <h2 className="font-bold mb-2">Transaction Trend</h2>
+          <ChartBox title="Transaction Trend">
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={trendData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -175,22 +137,46 @@ export default function Dashboard() {
                 <Line dataKey="amount" stroke="#3b82f6" strokeWidth={2} />
               </LineChart>
             </ResponsiveContainer>
-          </div>
+          </ChartBox>
 
-          <div className="bg-white p-6 rounded-xl shadow">
-            <h2 className="font-bold mb-2">Income vs Expense</h2>
+          <ChartBox title="Income vs Expense">
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
-                <Pie data={pieData} dataKey="value" outerRadius={90} label>
-                  {pieData.map((_, i) => (
+                <Pie data={incomeExpenseData} dataKey="value" outerRadius={90} label>
+                  {incomeExpenseData.map((_, i) => (
                     <Cell key={i} fill={COLORS[i]} />
                   ))}
                 </Pie>
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
-          </div>
+          </ChartBox>
 
+        </div>
+
+        {/* ✅ NEW CATEGORY PIE CHART */}
+        <div className="bg-white p-6 rounded-xl shadow mb-6">
+          <h2 className="font-bold mb-3">Spending by Category</h2>
+
+          {categoryPieData.length === 0 ? (
+            <p className="text-gray-500">No category data yet</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie
+                  data={categoryPieData}
+                  dataKey="value"
+                  outerRadius={110}
+                  label
+                >
+                  {categoryPieData.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         {/* FILTERS */}
@@ -202,9 +188,7 @@ export default function Dashboard() {
             onChange={e => setFilterCategory(e.target.value)}
           >
             <option value="">All Categories</option>
-            {categories.map(c => (
-              <option key={c}>{c}</option>
-            ))}
+            {categories.map(c => <option key={c}>{c}</option>)}
           </select>
 
           <input
@@ -215,10 +199,7 @@ export default function Dashboard() {
           />
 
           <button
-            onClick={() => {
-              setFilterCategory("");
-              setFilterDate("");
-            }}
+            onClick={() => { setFilterCategory(""); setFilterDate(""); }}
             className="bg-gray-200 px-4 rounded"
           >
             Clear
@@ -236,10 +217,9 @@ export default function Dashboard() {
 
           <div className="space-y-2">
             {filteredTransactions.map(t => (
-              <div
-                key={t.id || t._id}
-                className="border p-4 rounded flex justify-between"
-              >
+              <div key={t.id || t._id}
+                className="border p-4 rounded flex justify-between">
+
                 <div>
                   <p className="font-semibold">{t.category}</p>
                   <p className="text-sm text-gray-600">
@@ -256,62 +236,11 @@ export default function Dashboard() {
         </div>
 
       </div>
-
-      {/* ADD BUTTON */}
-      <button
-        onClick={() => setShowAddModal(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 text-white rounded-full text-2xl"
-      >
-        +
-      </button>
-
-      {/* ADD TRANSACTION MODAL */}
-      {showAddModal && (
-        <Modal close={() => setShowAddModal(false)}>
-          <input placeholder="Amount" type="number"
-            onChange={e => setNewTransaction({ ...newTransaction, amount: e.target.value })}
-            className="input" />
-
-          <input placeholder="Category"
-            onChange={e => setNewTransaction({ ...newTransaction, category: e.target.value })}
-            className="input" />
-
-          <select
-            onChange={e => setNewTransaction({ ...newTransaction, account: e.target.value })}
-            className="input"
-          >
-            <option value="">Select account</option>
-            {accounts.map(a => (
-              <option key={a.id || a._id}>{a.name}</option>
-            ))}
-          </select>
-
-          <button onClick={addTransaction} className="btn">Add</button>
-        </Modal>
-      )}
-
-      {/* ACCOUNT SETUP */}
-      {showAccountSetup && (
-        <Modal close={() => {}}>
-          <input placeholder="Account name"
-            className="input"
-            value={accountName}
-            onChange={e => setAccountName(e.target.value)} />
-
-          <input placeholder="Initial balance"
-            type="number"
-            className="input"
-            value={initialBalance}
-            onChange={e => setInitialBalance(e.target.value)} />
-
-          <button onClick={createAccount} className="btn">Create Account</button>
-        </Modal>
-      )}
     </div>
   );
 }
 
-/* ---------------- SMALL UI HELPERS ---------------- */
+/* ---------------- UI HELPERS ---------------- */
 
 function Card({ title, value, color }) {
   return (
@@ -322,13 +251,11 @@ function Card({ title, value, color }) {
   );
 }
 
-function Modal({ children, close }) {
+function ChartBox({ title, children }) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white p-6 rounded-xl w-full max-w-md space-y-3">
-        {children}
-        <button onClick={close} className="text-gray-500">Close</button>
-      </div>
+    <div className="bg-white p-6 rounded-xl shadow">
+      <h2 className="font-bold mb-2">{title}</h2>
+      {children}
     </div>
   );
 }
