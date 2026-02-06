@@ -765,18 +765,20 @@ export default function Dashboard() {
 
 function SummaryCard({ title, value, color, icon }) {
   const colors = {
-    blue: "from-blue-500 to-indigo-500",
-    green: "from-green-500 to-emerald-500",
-    red: "from-red-500 to-pink-500"
+    blue: "bg-gradient-to-br from-blue-500 to-indigo-500",
+    green: "bg-gradient-to-br from-green-500 to-emerald-500",
+    red: "bg-gradient-to-br from-red-500 to-pink-500"
   };
 
   return (
-    <div className={`glass rounded-2xl shadow-xl p-6 bg-gradient-to-br ${colors[color]} text-white`}>
+    <div className={`${colors[color]} rounded-2xl shadow-xl p-6 text-white`}>
       <div className="flex items-center justify-between mb-2">
-        <p className="text-white/90 font-medium">{title}</p>
+        <p className="font-medium opacity-90">{title}</p>
         <span className="text-3xl">{icon}</span>
       </div>
-      <p className="text-3xl font-bold">₹{Number(value || 0).toFixed(2)}</p>
+      <p className="text-3xl font-bold">
+        ₹{Number(value || 0).toFixed(2)}
+      </p>
     </div>
   );
 }
