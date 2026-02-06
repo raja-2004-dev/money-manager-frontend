@@ -1,14 +1,33 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api";
 
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
+} from "recharts";
+
 export default function Dashboard() {
+  const nav = useNavigate();
+
   const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [showAccountSetup, setShowAccountSetup] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+
   const [accountName, setAccountName] = useState("");
   const [initialBalance, setInitialBalance] = useState("");
-  const [showAddModal, setShowAddModal] = useState(false);
+
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterDate, setFilterDate] = useState("");
 
   const [newTransaction, setNewTransaction] = useState({
     type: "expense",
@@ -18,9 +37,6 @@ export default function Dashboard() {
     account: ""
   });
 
-  const nav = useNavigate();
-
-  // Load dashboard data safely
   const loadData = useCallback(async () => {
     try {
       const [accs, trans] = await Promise.all([
@@ -35,7 +51,6 @@ export default function Dashboard() {
         setShowAccountSetup(true);
       }
     } catch (err) {
-      console.error(err);
       if (err.response?.status === 401) nav("/");
     }
   }, [nav]);
@@ -47,48 +62,34 @@ export default function Dashboard() {
   }, [loadData, nav]);
 
   const createAccount = async () => {
-    if (!accountName || !initialBalance) {
-      alert("Please fill all fields");
-      return;
-    }
+    if (!accountName || !initialBalance) return;
 
-    try {
-      await api.post("/api/transactions/accounts", {
-        name: accountName,
-        balance: Number(initialBalance)
-      });
+    await api.post("/api/transactions/accounts", {
+      name: accountName,
+      balance: Number(initialBalance)
+    });
 
-      setShowAccountSetup(false);
-      setAccountName("");
-      setInitialBalance("");
-      loadData();
-    } catch {
-      alert("Failed to create account");
-    }
+    setAccountName("");
+    setInitialBalance("");
+    setShowAccountSetup(false);
+    loadData();
   };
 
   const addTransaction = async () => {
-    if (!newTransaction.amount || !newTransaction.category || !newTransaction.account) {
-      alert("Please fill all fields");
-      return;
-    }
+    if (!newTransaction.amount || !newTransaction.category || !newTransaction.account) return;
 
-    try {
-      await api.post("/api/transactions", newTransaction);
+    await api.post("/api/transactions", newTransaction);
 
-      setShowAddModal(false);
-      setNewTransaction({
-        type: "expense",
-        amount: "",
-        category: "",
-        description: "",
-        account: ""
-      });
+    setNewTransaction({
+      type: "expense",
+      amount: "",
+      category: "",
+      description: "",
+      account: ""
+    });
 
-      loadData();
-    } catch {
-      alert("Failed to add transaction");
-    }
+    setShowAddModal(false);
+    loadData();
   };
 
   const logout = () => {
@@ -96,140 +97,167 @@ export default function Dashboard() {
     nav("/");
   };
 
-  // ✅ SAFE TOTAL CALCULATIONS (no crashes ever)
+  // ---------------- FILTERING ----------------
 
-  const totalBalance = accounts.reduce(
-    (sum, acc) => sum + Number(acc.balance || 0),
-    0
-  );
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      const matchCategory = filterCategory ? t.category === filterCategory : true;
+
+      const matchDate = filterDate
+        ? new Date(t.created_at).toISOString().slice(0, 10) === filterDate
+        : true;
+
+      return matchCategory && matchDate;
+    });
+  }, [transactions, filterCategory, filterDate]);
+
+  const categories = [...new Set(transactions.map(t => t.category))];
+
+  // ---------------- SUMMARY ----------------
+
+  const totalBalance = accounts.reduce((s, a) => s + Number(a.balance || 0), 0);
 
   const totalIncome = transactions
     .filter(t => t.type === "income")
-    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    .reduce((s, t) => s + Number(t.amount || 0), 0);
 
   const totalExpense = transactions
     .filter(t => t.type === "expense")
-    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    .reduce((s, t) => s + Number(t.amount || 0), 0);
+
+  // ---------------- CHART DATA ----------------
+
+  const trendData = transactions.map(t => ({
+    date: new Date(t.created_at).toLocaleDateString(),
+    amount: Number(t.amount || 0)
+  }));
+
+  const pieData = [
+    { name: "Income", value: totalIncome },
+    { name: "Expense", value: totalExpense }
+  ];
+
+  const COLORS = ["#22c55e", "#ef4444"];
+
+  // =====================================================
 
   return (
     <div className="min-h-screen bg-gray-50">
 
       {/* HEADER */}
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-800">💰 Money Manager</h1>
-          <button
-            onClick={logout}
-            className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-          >
-            Logout
-          </button>
-        </div>
+      <div className="bg-white shadow p-4 flex justify-between">
+        <h1 className="text-2xl font-bold">💰 Money Manager</h1>
+        <button onClick={logout} className="bg-red-500 text-white px-4 py-2 rounded">
+          Logout
+        </button>
       </div>
 
-      {/* ACCOUNT SETUP MODAL */}
-      {showAccountSetup && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-8 max-w-md w-full">
-            <h2 className="text-2xl font-bold mb-4">Create Your First Account</h2>
-
-            <input
-              placeholder="Account Name"
-              className="w-full px-4 py-2 border rounded-lg mb-3"
-              value={accountName}
-              onChange={e => setAccountName(e.target.value)}
-            />
-
-            <input
-              type="number"
-              placeholder="Initial Balance"
-              className="w-full px-4 py-2 border rounded-lg"
-              value={initialBalance}
-              onChange={e => setInitialBalance(e.target.value)}
-            />
-
-            <button
-              onClick={createAccount}
-              className="w-full mt-4 bg-blue-600 text-white py-3 rounded-lg"
-            >
-              Create Account
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* MAIN CONTENT */}
       <div className="max-w-7xl mx-auto p-4">
 
         {/* SUMMARY */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white p-6 rounded-xl shadow">
-            <p>Total Balance</p>
-            <p className="text-3xl font-bold text-blue-600">₹{totalBalance.toFixed(2)}</p>
-          </div>
-
-          <div className="bg-white p-6 rounded-xl shadow">
-            <p>Total Income</p>
-            <p className="text-3xl font-bold text-green-600">₹{totalIncome.toFixed(2)}</p>
-          </div>
-
-          <div className="bg-white p-6 rounded-xl shadow">
-            <p>Total Expense</p>
-            <p className="text-3xl font-bold text-red-600">₹{totalExpense.toFixed(2)}</p>
-          </div>
+          <Card title="Balance" value={totalBalance} color="text-blue-600" />
+          <Card title="Income" value={totalIncome} color="text-green-600" />
+          <Card title="Expense" value={totalExpense} color="text-red-600" />
         </div>
 
-        {/* ACCOUNTS */}
-        <div className="bg-white p-6 rounded-xl shadow mb-6">
-          <h2 className="text-xl font-bold mb-4">Accounts</h2>
+        {/* CHARTS */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
 
-          {accounts.length === 0 && (
-            <p className="text-gray-500">No accounts yet</p>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {accounts.map(acc => (
-              <div key={acc.id || acc._id} className="p-4 border rounded-lg">
-                <p className="font-semibold">{acc.name}</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  ₹{Number(acc.balance || 0).toFixed(2)}
-                </p>
-              </div>
-            ))}
+          <div className="bg-white p-6 rounded-xl shadow">
+            <h2 className="font-bold mb-2">Transaction Trend</h2>
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={trendData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip />
+                <Line dataKey="amount" stroke="#3b82f6" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
+
+          <div className="bg-white p-6 rounded-xl shadow">
+            <h2 className="font-bold mb-2">Income vs Expense</h2>
+            <ResponsiveContainer width="100%" height={250}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" outerRadius={90} label>
+                  {pieData.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+        </div>
+
+        {/* FILTERS */}
+        <div className="bg-white p-4 rounded-xl shadow flex gap-4 mb-4 flex-wrap">
+
+          <select
+            className="border p-2 rounded"
+            value={filterCategory}
+            onChange={e => setFilterCategory(e.target.value)}
+          >
+            <option value="">All Categories</option>
+            {categories.map(c => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+
+          <input
+            type="date"
+            className="border p-2 rounded"
+            value={filterDate}
+            onChange={e => setFilterDate(e.target.value)}
+          />
+
+          <button
+            onClick={() => {
+              setFilterCategory("");
+              setFilterDate("");
+            }}
+            className="bg-gray-200 px-4 rounded"
+          >
+            Clear
+          </button>
         </div>
 
         {/* TRANSACTIONS */}
         <div className="bg-white p-6 rounded-xl shadow">
-          <h2 className="text-xl font-bold mb-4">Recent Transactions</h2>
 
-          {transactions.length === 0 && (
-            <p className="text-gray-500 text-center py-6">
-              No transactions yet
-            </p>
+          <h2 className="font-bold mb-4">Transactions</h2>
+
+          {filteredTransactions.length === 0 && (
+            <p className="text-gray-500 text-center">No transactions found</p>
           )}
 
           <div className="space-y-2">
-            {transactions.slice(0, 10).map(t => (
+            {filteredTransactions.map(t => (
               <div
                 key={t.id || t._id}
-                className="p-4 border rounded-lg flex justify-between"
+                className="border p-4 rounded flex justify-between"
               >
                 <div>
                   <p className="font-semibold">{t.category}</p>
-                  <p className="text-sm text-gray-600">{t.account}</p>
+                  <p className="text-sm text-gray-600">
+                    {new Date(t.created_at).toLocaleDateString()}
+                  </p>
                 </div>
 
                 <p className={`font-bold ${t.type === "income" ? "text-green-600" : "text-red-600"}`}>
-                  {t.type === "income" ? "+" : "-"}₹{Number(t.amount || 0).toFixed(2)}
+                  {t.type === "income" ? "+" : "-"}₹{Number(t.amount).toFixed(2)}
                 </p>
               </div>
             ))}
           </div>
         </div>
+
       </div>
 
-      {/* ADD TRANSACTION BUTTON */}
+      {/* ADD BUTTON */}
       <button
         onClick={() => setShowAddModal(true)}
         className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 text-white rounded-full text-2xl"
@@ -239,72 +267,68 @@ export default function Dashboard() {
 
       {/* ADD TRANSACTION MODAL */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-8 max-w-md w-full">
+        <Modal close={() => setShowAddModal(false)}>
+          <input placeholder="Amount" type="number"
+            onChange={e => setNewTransaction({ ...newTransaction, amount: e.target.value })}
+            className="input" />
 
-            <select
-              className="w-full border p-2 mb-2"
-              value={newTransaction.type}
-              onChange={e => setNewTransaction({ ...newTransaction, type: e.target.value })}
-            >
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-            </select>
+          <input placeholder="Category"
+            onChange={e => setNewTransaction({ ...newTransaction, category: e.target.value })}
+            className="input" />
 
-            <input
-              placeholder="Amount"
-              type="number"
-              className="w-full border p-2 mb-2"
-              value={newTransaction.amount}
-              onChange={e => setNewTransaction({ ...newTransaction, amount: e.target.value })}
-            />
+          <select
+            onChange={e => setNewTransaction({ ...newTransaction, account: e.target.value })}
+            className="input"
+          >
+            <option value="">Select account</option>
+            {accounts.map(a => (
+              <option key={a.id || a._id}>{a.name}</option>
+            ))}
+          </select>
 
-            <input
-              placeholder="Category"
-              className="w-full border p-2 mb-2"
-              value={newTransaction.category}
-              onChange={e => setNewTransaction({ ...newTransaction, category: e.target.value })}
-            />
-
-            <select
-              className="w-full border p-2 mb-2"
-              value={newTransaction.account}
-              onChange={e => setNewTransaction({ ...newTransaction, account: e.target.value })}
-            >
-              <option value="">Select account</option>
-              {accounts.map(acc => (
-                <option key={acc.id || acc._id} value={acc.name}>
-                  {acc.name}
-                </option>
-              ))}
-            </select>
-
-            <input
-              placeholder="Description"
-              className="w-full border p-2 mb-3"
-              value={newTransaction.description}
-              onChange={e => setNewTransaction({ ...newTransaction, description: e.target.value })}
-            />
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="flex-1 bg-gray-200 p-2 rounded"
-              >
-                Cancel
-              </button>
-
-              <button
-                onClick={addTransaction}
-                className="flex-1 bg-blue-600 text-white p-2 rounded"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        </div>
+          <button onClick={addTransaction} className="btn">Add</button>
+        </Modal>
       )}
 
+      {/* ACCOUNT SETUP */}
+      {showAccountSetup && (
+        <Modal close={() => {}}>
+          <input placeholder="Account name"
+            className="input"
+            value={accountName}
+            onChange={e => setAccountName(e.target.value)} />
+
+          <input placeholder="Initial balance"
+            type="number"
+            className="input"
+            value={initialBalance}
+            onChange={e => setInitialBalance(e.target.value)} />
+
+          <button onClick={createAccount} className="btn">Create Account</button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- SMALL UI HELPERS ---------------- */
+
+function Card({ title, value, color }) {
+  return (
+    <div className="bg-white p-6 rounded-xl shadow hover:shadow-lg transition">
+      <p className="text-gray-600">{title}</p>
+      <p className={`text-3xl font-bold ${color}`}>₹{value.toFixed(2)}</p>
+    </div>
+  );
+}
+
+function Modal({ children, close }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white p-6 rounded-xl w-full max-w-md space-y-3">
+        {children}
+        <button onClick={close} className="text-gray-500">Close</button>
+      </div>
     </div>
   );
 }
