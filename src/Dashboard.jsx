@@ -12,6 +12,10 @@ export default function Dashboard() {
 
   const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [categorySummary, setCategorySummary] = useState([]);
+
+  const [view, setView] = useState("monthly");
+  const [summaryData, setSummaryData] = useState([]);
 
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -24,34 +28,34 @@ export default function Dashboard() {
     type: "expense",
     amount: "",
     category: "",
+    division: "Personal",
     account: "",
     description: ""
   });
 
   const [filterCategory, setFilterCategory] = useState("");
-  const [filterDate, setFilterDate] = useState("");
+  const [filterDivision, setFilterDivision] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   // ================= LOAD DATA =================
 
   const loadData = useCallback(async () => {
-    const [accs, trans] = await Promise.all([
+    const [accs, trans, summary, cats] = await Promise.all([
       api.get("/api/transactions/accounts"),
       api.get("/api/transactions"),
+      api.get(`/api/transactions/summary/${view}`),
+      api.get("/api/transactions/summary/category")
     ]);
 
-    const accountList = accs.data || [];
-    const transactionList = trans.data || [];
+    setAccounts(accs.data || []);
+    setTransactions(trans.data || []);
+    setSummaryData(summary.data || []);
+    setCategorySummary(cats.data || []);
 
-    setAccounts(accountList);
-    setTransactions(transactionList);
-
-    if (accountList.length === 0) {
-      setShowAccountSetup(true);
-      return;
-    }
-
-    setShowAccountSetup(false);
-  }, []);
+    if ((accs.data || []).length === 0) setShowAccountSetup(true);
+    else setShowAccountSetup(false);
+  }, [view]);
 
   useEffect(() => {
     if (!localStorage.getItem("token")) nav("/");
@@ -73,14 +77,13 @@ export default function Dashboard() {
     loadData();
   };
 
-  // ================= ADD + EDIT TRANSACTION =================
-  // Backend already updates balance automatically
+  // ================= ADD + EDIT =================
 
   const saveTransaction = async () => {
     if (!form.amount || !form.category || !form.account) return;
 
     if (editing) {
-      await api.put(`/api/transactions/${editing.id || editing._id}`, form);
+      await api.put(`/api/transactions/${editing.id}`, form);
     } else {
       await api.post("/api/transactions", form);
     }
@@ -89,6 +92,7 @@ export default function Dashboard() {
       type: "expense",
       amount: "",
       category: "",
+      division: "Personal",
       account: "",
       description: ""
     });
@@ -102,22 +106,22 @@ export default function Dashboard() {
 
   const filtered = useMemo(() => {
     return transactions.filter(t => {
-      const byCat = filterCategory ? t.category === filterCategory : true;
-      const byDate = filterDate
-        ? new Date(t.created_at).toISOString().slice(0, 10) === filterDate
-        : true;
-      return byCat && byDate;
+      const d = new Date(t.created_at);
+
+      return (
+        (!filterCategory || t.category === filterCategory) &&
+        (!filterDivision || t.division === filterDivision) &&
+        (!fromDate || d >= new Date(fromDate)) &&
+        (!toDate || d <= new Date(toDate))
+      );
     });
-  }, [transactions, filterCategory, filterDate]);
+  }, [transactions, filterCategory, filterDivision, fromDate, toDate]);
 
   const categories = [...new Set(transactions.map(t => t.category))];
 
   // ================= SUMMARY =================
 
-  const totalBalance = accounts.reduce(
-    (s, a) => s + Number(a.balance || 0),
-    0
-  );
+  const totalBalance = accounts.reduce((s, a) => s + Number(a.balance || 0), 0);
 
   const totalIncome = transactions
     .filter(t => t.type === "income")
@@ -127,21 +131,14 @@ export default function Dashboard() {
     .filter(t => t.type === "expense")
     .reduce((s, t) => s + Number(t.amount || 0), 0);
 
-  // ================= CHART DATA =================
-
-  const trendData = transactions.map(t => ({
-    date: new Date(t.created_at).toLocaleDateString(),
-    amount: Number(t.amount)
+  const pieData = summaryData.map(i => ({
+    name: i.type,
+    value: Number(i.total)
   }));
-
-  const pieData = [
-    { name: "Income", value: totalIncome },
-    { name: "Expense", value: totalExpense }
-  ];
 
   const COLORS = ["#22c55e", "#ef4444"];
 
-  // ==========================================================
+  // ======================================================
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -150,252 +147,166 @@ export default function Dashboard() {
       <div className="bg-white shadow p-4 flex justify-between">
         <h1 className="text-2xl font-bold">💰 Money Manager</h1>
         <button
-          onClick={() => {
-            localStorage.removeItem("token");
-            nav("/");
-          }}
+          onClick={() => { localStorage.removeItem("token"); nav("/"); }}
           className="bg-red-500 text-white px-4 py-2 rounded"
         >
           Logout
         </button>
       </div>
 
-      {/* ================= DASHBOARD ================= */}
-
       {!showAccountSetup && (
-        <div className="max-w-6xl mx-auto p-4">
+        <div className="max-w-6xl mx-auto p-4 space-y-6">
 
           {/* SUMMARY */}
-          <div className="grid md:grid-cols-3 gap-4 mb-6">
-            <Summary title="Balance" value={totalBalance} color="text-blue-600" />
-            <Summary title="Income" value={totalIncome} color="text-green-600" />
-            <Summary title="Expense" value={totalExpense} color="text-red-600" />
+          <div className="grid md:grid-cols-3 gap-4">
+            <Summary title="Balance" value={totalBalance} color="text-blue-600"/>
+            <Summary title="Income" value={totalIncome} color="text-green-600"/>
+            <Summary title="Expense" value={totalExpense} color="text-red-600"/>
           </div>
 
-          {/* CHARTS */}
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
+          {/* VIEW DROPDOWN */}
+          <select
+            value={view}
+            onChange={e => setView(e.target.value)}
+            className="border p-2 rounded"
+          >
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
 
-            <Chart title="Transaction Trend">
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line dataKey="amount" stroke="#3b82f6" />
-                </LineChart>
-              </ResponsiveContainer>
-            </Chart>
-
-            <Chart title="Income vs Expense">
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie data={pieData} dataKey="value" outerRadius={90} label>
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </Chart>
-
+          {/* CHART */}
+          <div className="bg-white p-6 rounded shadow">
+            <ResponsiveContainer width="100%" height={250}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" outerRadius={90} label>
+                  {pieData.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
 
           {/* FILTERS */}
-          <div className="bg-white p-4 rounded shadow flex gap-4 mb-4">
-            <select
-              className="border p-2 rounded"
-              value={filterCategory}
-              onChange={e => setFilterCategory(e.target.value)}
-            >
+          <div className="bg-white p-4 rounded shadow flex flex-wrap gap-3">
+            <select onChange={e=>setFilterCategory(e.target.value)} className="border p-2 rounded">
               <option value="">All Categories</option>
-              {categories.map(c => (
-                <option key={c}>{c}</option>
-              ))}
+              {categories.map(c=> <option key={c}>{c}</option>)}
             </select>
 
-            <input
-              type="date"
-              className="border p-2 rounded"
-              value={filterDate}
-              onChange={e => setFilterDate(e.target.value)}
-            />
+            <select onChange={e=>setFilterDivision(e.target.value)} className="border p-2 rounded">
+              <option value="">All Divisions</option>
+              <option value="Personal">Personal</option>
+              <option value="Office">Office</option>
+            </select>
+
+            <input type="date" onChange={e=>setFromDate(e.target.value)} />
+            <input type="date" onChange={e=>setToDate(e.target.value)} />
           </div>
 
-          {/* TRANSACTIONS */}
+          {/* TRANSACTION HISTORY */}
           <div className="bg-white rounded shadow p-4 space-y-2">
-
             {filtered.map(t => (
               <div
-                key={t.id || t._id}
-                className="flex justify-between items-center border p-3 rounded hover:bg-gray-50 cursor-pointer"
+                key={t.id}
+                className="flex justify-between border p-3 rounded cursor-pointer"
                 onClick={() => {
                   setEditing(t);
-                  setForm({
-                    type: t.type,
-                    amount: t.amount,
-                    category: t.category,
-                    account: t.account,
-                    description: t.description || ""
-                  });
+                  setForm(t);
                   setShowAddModal(true);
                 }}
               >
                 <div>
-                  <p className="font-semibold">{t.category}</p>
+                  <p className="font-semibold">{t.category} ({t.division})</p>
                   <p className="text-sm text-gray-500">
-                    {new Date(t.created_at).toLocaleDateString()}
+                    {new Date(t.created_at).toLocaleString()}
                   </p>
                 </div>
-
-                <span className={t.type === "income" ? "text-green-600" : "text-red-600"}>
+                <span className={t.type==="income"?"text-green-600":"text-red-600"}>
                   ₹{t.amount}
                 </span>
               </div>
             ))}
-
           </div>
+
+          {/* CATEGORY SUMMARY */}
+          <div className="bg-white p-4 rounded shadow">
+            <h2 className="font-bold mb-2">Category Summary</h2>
+            {categorySummary.map(c => (
+              <div key={c.category} className="flex justify-between">
+                <span>{c.category}</span>
+                <span>₹{c.total}</span>
+              </div>
+            ))}
+          </div>
+
         </div>
       )}
 
-      {/* ================= ADD BUTTON ================= */}
-
+      {/* ADD BUTTON */}
       {!showAccountSetup && (
         <button
           onClick={() => {
             setEditing(null);
             setForm({
-              type: "expense",
-              amount: "",
-              category: "",
-              account: "",
-              description: ""
+              type:"expense",
+              amount:"",
+              category:"",
+              division:"Personal",
+              account:"",
+              description:""
             });
             setShowAddModal(true);
           }}
-          className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 text-white rounded-full text-2xl shadow-lg"
+          className="fixed bottom-6 right-6 bg-blue-600 text-white w-14 h-14 rounded-full text-2xl"
         >
           +
         </button>
       )}
 
-      {/* ================= ACCOUNT SETUP ================= */}
-
+      {/* ACCOUNT SETUP */}
       {showAccountSetup && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-4 shadow-xl">
-
-            <h2 className="text-xl font-bold text-center">
-              Create Your First Account
-            </h2>
-
-            <input
-              placeholder="Account name"
-              className="w-full border rounded-lg px-4 py-2"
-              value={accountName}
-              onChange={e => setAccountName(e.target.value)}
-            />
-
-            <input
-              type="number"
-              placeholder="Initial balance"
-              className="w-full border rounded-lg px-4 py-2"
-              value={initialBalance}
-              onChange={e => setInitialBalance(e.target.value)}
-            />
-
-            <button
-              onClick={createAccount}
-              className="w-full bg-blue-600 text-white py-2 rounded-lg"
-            >
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded space-y-3">
+            <input placeholder="Account name" onChange={e=>setAccountName(e.target.value)} />
+            <input type="number" placeholder="Initial balance" onChange={e=>setInitialBalance(e.target.value)} />
+            <button onClick={createAccount} className="bg-blue-600 text-white px-4 py-2 rounded">
               Create Account
             </button>
-
           </div>
         </div>
       )}
 
-      {/* ================= ADD / EDIT MODAL ================= */}
-
+      {/* ADD/EDIT MODAL */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded space-y-3 w-full max-w-md">
 
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-4 shadow-xl">
-
-            <h2 className="text-xl font-bold text-center">
-              {editing ? "Edit Transaction" : "Add Transaction"}
-            </h2>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => setForm({ ...form, type: "expense" })}
-                className={`flex-1 py-2 rounded-lg ${
-                  form.type === "expense" ? "bg-red-500 text-white" : "bg-gray-200"
-                }`}
-              >
-                Expense
-              </button>
-
-              <button
-                onClick={() => setForm({ ...form, type: "income" })}
-                className={`flex-1 py-2 rounded-lg ${
-                  form.type === "income" ? "bg-green-500 text-white" : "bg-gray-200"
-                }`}
-              >
-                Income
-              </button>
-            </div>
-
-            <input
-              type="number"
-              placeholder="Amount"
-              className="w-full border rounded-lg px-4 py-2"
-              value={form.amount}
-              onChange={e => setForm({ ...form, amount: e.target.value })}
-            />
-
-            <input
-              placeholder="Category"
-              className="w-full border rounded-lg px-4 py-2"
-              value={form.category}
-              onChange={e => setForm({ ...form, category: e.target.value })}
-            />
-
-            <select
-              className="w-full border rounded-lg px-4 py-2"
-              value={form.account}
-              onChange={e => setForm({ ...form, account: e.target.value })}
-            >
-              <option value="">Select account</option>
-              {accounts.map(a => (
-                <option key={a.id || a._id}>{a.name}</option>
-              ))}
+            <select onChange={e=>setForm({...form,type:e.target.value})}>
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
             </select>
 
-            <textarea
-              placeholder="Description (optional)"
-              className="w-full border rounded-lg px-4 py-2"
-              value={form.description}
-              onChange={e => setForm({ ...form, description: e.target.value })}
-            />
+            <input placeholder="Amount" onChange={e=>setForm({...form,amount:e.target.value})}/>
+            <input placeholder="Category" onChange={e=>setForm({...form,category:e.target.value})}/>
 
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="flex-1 py-2 rounded-lg bg-gray-200"
-              >
-                Cancel
-              </button>
+            <select onChange={e=>setForm({...form,division:e.target.value})}>
+              <option value="Personal">Personal</option>
+              <option value="Office">Office</option>
+            </select>
 
-              <button
-                onClick={saveTransaction}
-                className="flex-1 py-2 rounded-lg bg-blue-600 text-white"
-              >
-                {editing ? "Update" : "Add"}
-              </button>
-            </div>
+            <select onChange={e=>setForm({...form,account:e.target.value})}>
+              <option value="">Select account</option>
+              {accounts.map(a=><option key={a.id}>{a.name}</option>)}
+            </select>
 
+            <textarea placeholder="Description" onChange={e=>setForm({...form,description:e.target.value})}/>
+
+            <button onClick={saveTransaction} className="bg-blue-600 text-white px-4 py-2 rounded">
+              Save
+            </button>
           </div>
         </div>
       )}
@@ -403,23 +314,12 @@ export default function Dashboard() {
     </div>
   );
 }
-
-/* ================= SMALL COMPONENTS ================= */
 
 function Summary({ title, value, color }) {
   return (
-    <div className="bg-white p-6 rounded shadow">
+    <div className="bg-white p-4 rounded shadow">
       <p className="text-gray-600">{title}</p>
-      <p className={`text-3xl font-bold ${color}`}>₹{value.toFixed(2)}</p>
-    </div>
-  );
-}
-
-function Chart({ title, children }) {
-  return (
-    <div className="bg-white p-6 rounded shadow">
-      <h2 className="font-bold mb-2">{title}</h2>
-      {children}
+      <p className={`text-2xl font-bold ${color}`}>₹{value.toFixed(2)}</p>
     </div>
   );
 }
