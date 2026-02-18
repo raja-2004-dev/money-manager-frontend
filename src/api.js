@@ -6,7 +6,7 @@ console.log('API URL:', API_URL);
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 15000
+  timeout: 90000 // Increased to 90 seconds (was 15 seconds)
 });
 
 api.interceptors.request.use(config => {

@@ -32,7 +32,11 @@ export default function Signup() {
       nav("/");
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.error || "Signup failed");
+      if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+        setError("Server is starting up (this can take up to 60 seconds on first load). Please wait and try again.");
+      } else {
+        setError(err.response?.data?.error || "Signup failed. Please try again.");
+      }
     }
     setLoading(false);
   };
@@ -43,7 +47,20 @@ export default function Signup() {
         <h2 className="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">Create Account</h2>
         <p className="text-gray-600 text-center mb-6">Join us today</p>
         
-        {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">{error}</div>}
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+            {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-600 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <span>Creating account... Server may take up to 60 seconds to respond on first load.</span>
+            </div>
+          </div>
+        )}
         
         <div className="space-y-4">
           <div>

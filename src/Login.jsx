@@ -22,7 +22,11 @@ export default function Login() {
       nav("/dashboard");
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.error || "Login failed");
+      if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+        setError("Server is starting up (this can take up to 60 seconds on first load). Please try again in a moment.");
+      } else {
+        setError(err.response?.data?.error || "Login failed. Please try again.");
+      }
     }
     setLoading(false);
   };
@@ -33,7 +37,20 @@ export default function Login() {
         <h2 className="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Welcome Back</h2>
         <p className="text-gray-600 text-center mb-6">Sign in to continue</p>
         
-        {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">{error}</div>}
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+            {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-600 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <span>Connecting to server... This may take up to 60 seconds on first load.</span>
+            </div>
+          </div>
+        )}
         
         <div className="space-y-4">
           <div>
